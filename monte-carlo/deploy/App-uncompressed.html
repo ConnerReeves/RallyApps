@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>monte-carlo</title>
+
+    <script type="text/javascript" src="/apps/2.0rc3/sdk.js"></script>
+
+    <script type="text/javascript">
+        Rally.onReady(function () {
+                Ext.define('CustomApp.DataFetcher', {
+  singleton: true
+});
+                Ext.define('CustomApp', {
+    extend: 'Rally.app.App',
+    componentCls: 'app',
+
+    launch: function() {
+      debugger;
+      this._setupUI();
+      this._changePortfolioItem();
+    },
+
+    _setupUI: function() {
+      this.add([{
+        xtype: 'container',
+        layout: 'hbox',
+        items: [{
+          xtype: 'component',
+          flex: 1
+        },{
+          xtype: 'rallybutton',
+          text: '<span class="icon-gear icon-large"></span>',
+          margin: '3 3 3 3',
+          arrowCls: '',
+          menu: {
+            xtype: 'menu',
+            items: [{
+              text: 'Change Portfolio Item',
+              listeners: {
+                click: this._changePortfolioItem,
+                scope: this
+              }
+            }]
+          }
+        }]
+      }]);
+    },
+
+    _changePortfolioItem: function() {
+      Deft.Chain.pipeline([
+        this._selectNewPortfolioItem,
+        this._saveSelectedPortfolioItem
+      ], this).then({
+        success: function() {
+          Rally.ui.notify.Notifier.show({
+            message  : 'Settings saved successfully.',
+            duration : 3000
+          });
+        },
+        failure: function(err) {
+          if (err) {
+            Rally.ui.notify.Notifier.showError({
+              message: err,
+              duration: 5000
+            });
+          }
+        }
+      });
+    },
+
+    _selectNewPortfolioItem: function() {
+      var deferred = Ext.create('Deft.Deferred');
+      Ext.create('Rally.ui.dialog.SolrArtifactChooserDialog', {
+        artifactTypes: ['PortfolioItem'],
+        autoShow: true,
+        closable: false,
+        height: 500,
+        title: 'Choose Portfolio Item',
+        storeConfig: {
+          sorters: [{
+            property: 'FormattedID',
+            direction: 'ASC'
+          }]
+        },
+        listeners: {
+          artifactchosen: function(chooser, selectedRecord) {
+            chooser.recordSelected = true;
+            deferred.resolve(selectedRecord);
+          },
+          close: function(chooser) {
+            if (!chooser.recordSelected) {
+              deferred.reject();
+            }
+          },
+          scope: this
+        }
+      });
+      return deferred.promise;
+    },
+
+    _saveSelectedPortfolioItem: function(selectedRecord) {
+      var deferred = Ext.create('Deft.Deferred');
+      deferred.reject('Not availible yet...');
+      // Rally.data.PreferenceManager.update({
+      //   filterByUser: true,
+      //   settings: {
+      //     'monte-carlo-portfolio-item-oid': selectedRecord.get('ObjectID')
+      //   }
+      // });
+      return deferred.promise;
+    },
+
+    _getSavedPortfolioItem: function() {
+      var deferred = Ext.create('Deft.Deferred');
+      deferred.resolve(19728385560); //I3180
+      return deferred.promise;
+
+
+      // Rally.data.PreferenceManager.load({
+      //   filterByUser: true,
+      //   success: function(prefs) {
+      //       deferred.resolve(Ext.JSON.decode(prefs.selectedFeatureOIDs));
+      //   },
+      //   scope: this
+      // });
+    }
+});
+
+
+            Rally.launchApp('CustomApp', {
+                name:"monte-carlo",
+	            parentRepos:""
+            });
+
+        });
+    </script>
+
+
+    <style type="text/css">
+        
+    </style>
+</head>
+<body>
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>monte-carlo</title>
+
+    <script type="text/javascript" src="https://rally1.rallydev.com/apps/2.0rc3/sdk.js"></script>
+
+    <script type="text/javascript">
+        Rally.onReady(function () {
+                Ext.define("CustomApp.DataFetcher",{singleton:!0});
+                Ext.define("CustomApp",{extend:"Rally.app.App",componentCls:"app",launch:function(){this._setupUI(),this._changePortfolioItem()},_setupUI:function(){this.add([{xtype:"container",layout:"hbox",items:[{xtype:"component",flex:1},{xtype:"rallybutton",text:'<span class="icon-gear icon-large"></span>',margin:"3 3 3 3",arrowCls:"",menu:{xtype:"menu",items:[{text:"Change Portfolio Item",listeners:{click:this._changePortfolioItem,scope:this}}]}}]}])},_changePortfolioItem:function(){Deft.Chain.pipeline([this._selectNewPortfolioItem,this._saveSelectedPortfolioItem],this).then({success:function(){Rally.ui.notify.Notifier.show({message:"Settings saved successfully.",duration:3e3})},failure:function(err){err&&Rally.ui.notify.Notifier.showError({message:err,duration:5e3})}})},_selectNewPortfolioItem:function(){var deferred=Ext.create("Deft.Deferred");return Ext.create("Rally.ui.dialog.SolrArtifactChooserDialog",{artifactTypes:["PortfolioItem"],autoShow:!0,closable:!1,height:500,title:"Choose Portfolio Item",storeConfig:{sorters:[{property:"FormattedID",direction:"ASC"}]},listeners:{artifactchosen:function(chooser,selectedRecord){chooser.recordSelected=!0,deferred.resolve(selectedRecord)},close:function(chooser){chooser.recordSelected||deferred.reject()},scope:this}}),deferred.promise},_saveSelectedPortfolioItem:function(selectedRecord){var deferred=Ext.create("Deft.Deferred");return deferred.reject("Not availible yet..."),deferred.promise},_getSavedPortfolioItem:function(){var deferred=Ext.create("Deft.Deferred");return deferred.resolve(19728385560),deferred.promise}});
+
+            Rally.launchApp('CustomApp', {
+                name:"monte-carlo",
+	            parentRepos:""
+            });
+
+        });
+    </script>
+
+
+    <style type="text/css">
+        
+    </style>
+</head>
+<body>
+</body>
+</html>

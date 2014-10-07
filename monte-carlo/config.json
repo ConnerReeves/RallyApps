@@ -1,0 +1,13 @@
+{
+   "name": "monte-carlo",
+   "className": "CustomApp",
+   "server": "https://rally1.rallydev.com",
+   "sdk": "2.0rc3",
+   "javascript": [
+      "DataFetcher.js",
+      "App.js"
+   ],
+   "css": [
+      "app.css"
+   ]
+}
