@@ -1,18 +1,11 @@
 Ext.define('DataFetcher', {
   singleton: true,
 
-  _getWorkItems: function(piOID) {
-    this.piOID = piOID;
-
-    Deft.Chain.pipeline([
-      this._getUnhydratedWorkItemRecords,
-      this._hydrateIterationValues,
-      this._calculateIterationVelocities
-    ], this).then({
-      success: function(out) {
-        console.log(out);
-      }
-    });
+  getChartData: function() {
+    return Deft.Chain.pipeline([
+      DataFetcher._getUnhydratedWorkItemRecords,
+      DataFetcher._hydrateIterationValues
+    ], this);
   },
 
   _getUnhydratedWorkItemRecords: function() {
@@ -111,42 +104,5 @@ Ext.define('DataFetcher', {
     });
 
     return deferred.promise;
-  },
-
-  _calculateIterationVelocities: function(iterationGroups) {
-    var deferred = Ext.create('Deft.Deferred');
-
-    Deft.Promise.all(_.map(['HierarchicalRequirement', 'Defect'], function(modelName) {
-      return function() {
-        var deferred = Ext.create('Deft.Deferred');
-        Rally.data.ModelFactory.getModel({
-          type: modelName,
-          success: function(model) {
-            model.getField('ScheduleState').getAllowedValueStore().load({
-              callback: function(stateRecords, operation, success) {
-                deferred.resolve(stateRecords[stateRecords.length - 1].get('StringValue'));
-              }
-            });
-          }
-        });
-        return deferred.promise;
-      }();
-    })).then({
-      success: function(finalStateNames) {
-        _.each(iterationGroups, function(workItemRecords, iterationName) {
-          console.log(iterationName);
-        });
-      }
-    });
-
-    return deferred.promise;
   }
 });
-
-// {
-//   'Iteration 1': {
-//     StartDate:
-//     EndDate:
-//     WorkItems: []
-//   }
-// }

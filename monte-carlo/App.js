@@ -2,19 +2,36 @@ Ext.define('CustomApp', {
     extend: 'Rally.app.App',
     componentCls: 'app',
 
+    layout: 'border',
+
     launch: function() {
       this._setupUI();
-      DataFetcher._getWorkItems(19728385560);
+
+      this.piOID = 19728385560; //Will be set by "_changePortfolioItem"
+
+      Deft.Chain.pipeline([
+        DataFetcher.getChartData,
+        DataAggregator.parseChartData
+      ], this).then({
+        success: ChartRenderer.render,
+        scope: this
+        // failure: this._showErrorMsg
+      });
+    },
+
+    _showErrorMsg: function(err) {
+      console.log('error', err);
     },
 
     _setupUI: function() {
       this.add([{
+        region: 'north',
         xtype: 'container',
         layout: 'hbox',
+        style: {
+          background: 'white'
+        },
         items: [{
-          xtype: 'component',
-          flex: 1
-        },{
           xtype: 'rallybutton',
           text: '<span class="icon-gear icon-large"></span>',
           margin: '3 3 3 3',
@@ -30,6 +47,17 @@ Ext.define('CustomApp', {
             }]
           }
         }]
+      },{
+        region: 'center',
+        xtype: 'container',
+        id: 'chartContainer',
+        listeners: {
+          resize: function(me, width, height, oldWidth, oldHeight) {
+            if (height !== oldHeight && Ext.getCmp('chart')) {
+              ChartRenderer.render();
+            }
+          }
+        }
       }]);
     },
 
@@ -57,30 +85,65 @@ Ext.define('CustomApp', {
 
     _selectNewPortfolioItem: function() {
       var deferred = Ext.create('Deft.Deferred');
-      Ext.create('Rally.ui.dialog.SolrArtifactChooserDialog', {
-        artifactTypes: ['PortfolioItem'],
-        autoShow: true,
-        closable: false,
-        height: 500,
-        title: 'Choose Portfolio Item',
-        storeConfig: {
-          sorters: [{
-            property: 'FormattedID',
-            direction: 'ASC'
-          }]
-        },
-        listeners: {
-          artifactchosen: function(chooser, selectedRecord) {
-            chooser.recordSelected = true;
-            deferred.resolve(selectedRecord);
-          },
-          close: function(chooser) {
-            if (!chooser.recordSelected) {
-              deferred.reject();
+
+      Ext.create('Rally.data.WsapiDataStore', {
+        model: 'TypeDefinition',
+        filters: [{
+          property: 'TypePath',
+          operator: 'contains',
+          value: 'PortfolioItem/'
+        }]
+      }).load().then(function(typeDefRecords) {
+        var modelNames = _.map(typeDefRecords, function(typeDefRecord) {
+          return typeDefRecord.get('TypePath');
+        });
+
+        Ext.create('Rally.ui.dialog.ChooserDialog', {
+            title: 'Choose Portfolio Item',
+            selectionButtonText: 'Save',
+            artifactTypes: modelNames,
+            autoShow: true,
+            modal: true,
+            height: 510,
+            width: 700,
+            movable: true,
+            columns: [{
+                dataIndex: 'FormattedID',
+                maxWidth: 65
+            },{
+                dataIndex: 'Name',
+                flex: 1
+            }],
+            storeConfig: {
+                pageSize: 20000,
+                sorters: [{
+                    property: 'FormattedID',
+                    direction: 'ASC'
+                }]
+            },
+            gridConfig: {
+                showPagingToolbar: false,
+                margin: '5 0 11 0',
+                style: {
+                    borderBottom: '2px solid #888888'
+                }
+            },
+            listeners: {
+                artifactChosen: function(artifact, scope) {
+                  if (artifact) {
+                    scope.artifactHasBeenChosen = true;
+                    deferred.resolve(artifact);
+                  }
+                },
+                close: function(chooser, scope) {
+                  if (!scope.artifactHasBeenChosen) {
+                    deferred.reject();
+                  }
+                },
+                artifactHasBeenChosen: false,
+                scope: this
             }
-          },
-          scope: this
-        }
+        });
       });
       return deferred.promise;
     },
@@ -101,7 +164,6 @@ Ext.define('CustomApp', {
       var deferred = Ext.create('Deft.Deferred');
       deferred.resolve(19728385560); //I3180
       return deferred.promise;
-
 
       // Rally.data.PreferenceManager.load({
       //   filterByUser: true,

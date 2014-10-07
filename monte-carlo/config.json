@@ -5,6 +5,8 @@
    "sdk": "2.0rc3",
    "javascript": [
       "DataFetcher.js",
+      "DataAggregator.js",
+      "ChartRenderer.js",
       "App.js"
    ],
    "css": [
