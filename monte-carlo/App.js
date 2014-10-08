@@ -2,20 +2,26 @@ Ext.define('CustomApp', {
     extend: 'Rally.app.App',
     componentCls: 'app',
 
-    layout: 'border',
+    layout: {
+      type: 'vbox',
+      pack: 'start',
+      align: 'stretch'
+    },
 
     launch: function() {
       this._setupUI();
-
       this.piOID = 19728385560; //Will be set by "_changePortfolioItem"
+      this._update();
+    },
 
+    _update: function() {
       Deft.Chain.pipeline([
         DataFetcher.getChartData,
         DataAggregator.parseChartData
       ], this).then({
         success: ChartRenderer.render,
-        scope: this
-        // failure: this._showErrorMsg
+        failure: this._showErrorMsg,
+        scope: ChartRenderer
       });
     },
 
@@ -29,12 +35,15 @@ Ext.define('CustomApp', {
         xtype: 'container',
         layout: 'hbox',
         style: {
-          background: 'white'
+          background: '#FFF'
+        },
+        defaults: {
+          margin: '3 0 3 3',
+          height: 33
         },
         items: [{
           xtype: 'rallybutton',
           text: '<span class="icon-gear icon-large"></span>',
-          margin: '3 3 3 3',
           arrowCls: '',
           menu: {
             xtype: 'menu',
@@ -46,14 +55,38 @@ Ext.define('CustomApp', {
               }
             }]
           }
+        },{
+          xtype: 'rallybutton',
+          text: '<span class="icon-refresh icon-large"></span>',
+          listeners: {
+            click: this._update,
+            scope: this
+          }
         }]
       },{
-        region: 'center',
         xtype: 'container',
-        id: 'chartContainer',
+        flex: 1,
+        layout: {
+          type: 'hbox',
+          pack: 'start',
+          align: 'stretch'
+        },
+        defaults: {
+          xtype: 'container',
+          style: {
+            background: 'white'
+          }
+        },
+        items: [{
+          id: 'mainChartContainer',
+          flex: 2,
+        },{
+          id: 'histogramChartContainer',
+          flex: 1,
+        }],
         listeners: {
           resize: function(me, width, height, oldWidth, oldHeight) {
-            if (height !== oldHeight && Ext.getCmp('chart')) {
+            if (height !== oldHeight && Ext.getCmp('mainChart')) {
               ChartRenderer.render();
             }
           }

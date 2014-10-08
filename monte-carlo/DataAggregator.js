@@ -56,6 +56,7 @@ Ext.define('DataAggregator', {
   },
 
   _projectFutureIterations: function(chartData) {
+    var deferred = Ext.create('Deft.Deferred');
     var pastIterationsData = _.first(chartData, chartData.length - 1);
     var backlogData = _.last(chartData, 1)[0];
 
@@ -71,17 +72,12 @@ Ext.define('DataAggregator', {
 
     var maxProjectionValue = initialProjectionValue + backlogData.PlanEstimateTotal;
 
-    console.log('backlog data', backlogData);
-    console.log('initial projection', initialProjectionValue);
-    console.log('best velocity', bestIterationVelocity);
-    console.log('worst velocity', worstIterationVelocity);
-    console.log('average velocity', averageIterationVelocity);
-
     //Get future iterations
+    console.log(maxProjectedIterationsCount)
     Ext.create('Rally.data.WsapiDataStore', {
       limit: maxProjectedIterationsCount,
       model: 'Iteration',
-      fetch: ['Name', 'StartDate', 'EndDate'],
+      fetch: ['Name'],
       filters: [{
         property: 'Project.ObjectID',
         value: Rally.environment.getContext().getProject().ObjectID
@@ -91,22 +87,98 @@ Ext.define('DataAggregator', {
         value: Rally.util.DateTime.toIsoString(new Date())
       }]
     }).load().then(function(futureIterationRecords) {
-      var futureIterationsData = _.map(futureIterationRecords, function(futureIterationRecord, index) {
+      var mainChartCategories = _.map(pastIterationsData, function(pastIteration) {
+        return pastIteration.Name;
+      }).concat(_.map(futureIterationRecords, function(futureIterationRecord) {
+        return futureIterationRecord.get('Name');
+      })); 
+
+      var projectionOuterRangeSeries = {
+        name: 'Outer Projection Range',
+        type: 'arearange',
+        color: '#E6E6E6',
+        data: _.map(_.range(pastIterationsData.length - 1), function(pastIterationNumber) {
+          return [null, null];
+        }).concat(_.map(futureIterationRecords, function(futureIterationRecord, projectionIndex) {
+          return [
+            Math.min(maxProjectionValue, initialProjectionValue + (worstIterationVelocity * projectionIndex)),
+            Math.min(maxProjectionValue, initialProjectionValue + (bestIterationVelocity * projectionIndex))
+          ];
+        }))
+      };
+
+      var pastIterationsBurnupSeries = {
+        name: 'Past Iteration Burnup',
+        type: 'line',
+        color: '#FF8200',
+        data: _.map(pastIterationsData, function(pastIteration) {
+          return pastIteration.AccumulatedVelocity;
+        })
+      };
+
+      var completionIterationIndices = [];
+      var projectionSeries = _.map(_.range(1, 50001), function(projectionNumber) {
+        var projectionValue = _.last(pastIterationsData, 1)[0].AccumulatedVelocity; 
+        
+        var projectionData = _.map(_.range(pastIterationsData.length - 1), function(pastIterationNumber) {
+          return null;
+        }).concat(_.map(_.range(maxProjectedIterationsCount), function(futureIterationNumber) {
+          if (projectionValue === maxProjectionValue) {
+            return null;
+          } else if (futureIterationNumber) {
+            projectionValue += pastIterationsData[_.random(0, pastIterationsData.length - 1)].Velocity;
+            
+            if (projectionValue >= maxProjectionValue) {
+              completionIterationIndices.push(futureIterationNumber);
+              projectionValue = maxProjectionValue;
+            }
+
+            projectionValue = projectionValue;
+          }
+          
+          return projectionValue;
+        }));
+
         return {
-          Name: futureIterationRecord.get('Name'),
-          StartDate: futureIterationRecord.get('StartDate'),
-          EndDate: futureIterationRecord.get('EndDate'),
-          OuterProjection: [
-            Math.min(maxProjectionValue, initialProjectionValue + (worstIterationVelocity * index)),
-            Math.min(maxProjectionValue, initialProjectionValue + (bestIterationVelocity * index))
-          ],
-          MeanProjection: Math.min(maxProjectionValue, initialProjectionValue + (averageIterationVelocity * index))
+          name: 'Projection ' + projectionNumber,
+          type: 'line',
+          color: '#00A9E0',
+          dashStyle: 'ShortDash',
+          lineWidth: 1,
+          marker: {
+            enabled: false
+          },
+          data: _.first(projectionData, pastIterationsData.length + futureIterationRecords.length - 1) //Remove unscheduled iterations
         };
       });
 
-      console.log(futureIterationsData);
+      var histogramCategories = _.range(_.min(completionIterationIndices), _.max(completionIterationIndices) + 1);
+      var histogramCounts = _.countBy(completionIterationIndices);
+      var histogramSeries = {
+        name: 'Data',
+        data: _.map(histogramCategories, function(iterationIndex) {
+          return ((histogramCounts[iterationIndex] || 0) / completionIterationIndices.length) * 100;
+        })
+      };
+
+      if (projectionSeries.length > 50) {
+        projectionSeries = _.first(projectionSeries, 50);
+      }
+
+      deferred.resolve({
+        main: {
+          categories: mainChartCategories,
+          series: _.flatten([pastIterationsBurnupSeries, projectionOuterRangeSeries, projectionSeries]),
+          todayLineIndex: pastIterationsData.length - 1,
+          scopeLineIndex: _.last(pastIterationsData, 1)[0].AccumulatedVelocity + backlogData.PlanEstimateTotal
+        },
+        histogram: {
+          categories: histogramCategories,
+          series: [histogramSeries]
+        }
+      });
     });
 
-    return chartData;
+    return deferred.promise;
   }
 });
