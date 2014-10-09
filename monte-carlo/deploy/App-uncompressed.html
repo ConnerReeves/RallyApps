@@ -32,7 +32,7 @@
         value: ['Defect', 'HierarchicalRequirement']
       },{
         property: '_ItemHierarchy',
-        value: this.piOID
+        value: this.activePortfolioItem.piOID
       },{
         property: 'PlanEstimate',
         operator: '>',
@@ -154,7 +154,15 @@
             iterationDetail.AccumulatedVelocity = _.reduce(chartData, function(sum, iterationDetail) {
               return sum + (iterationDetail.Velocity || 0);
             }, 0);
+          } else {
+            iterationDetail.PlanEstimateTotal = _.reduce(iterationDetail.WorkItems, function(sum, workItemRecord) {
+              return sum + (workItemRecord.get('PlanEstimate') || 0);
+            }, 0);
           }
+        });
+
+        chartData = _.filter(chartData, function(iterationDetail) {
+          return iterationDetail.Name === 'Backlog' || iterationDetail.Velocity > 0;
         });
 
         deferred.resolve(chartData);
@@ -165,127 +173,356 @@
   },
 
   _projectFutureIterations: function(chartData) {
-    return chartData;
+    var deferred = Ext.create('Deft.Deferred');
+    var pastIterationsData = _.first(chartData, chartData.length - 1);
+    var backlogData = _.last(chartData, 1)[0];
+
+    var initialProjectionValue = _.last(pastIterationsData, 1)[0].AccumulatedVelocity;
+
+    var worstIterationVelocity = _.min(_.pluck(pastIterationsData, 'Velocity'));
+    var bestIterationVelocity = _.max(_.pluck(pastIterationsData, 'Velocity'));
+    var maxProjectedIterationsCount = Math.ceil(backlogData.PlanEstimateTotal / worstIterationVelocity);
+
+    var averageIterationVelocity = _.reduce(pastIterationsData, function(sum, iterationDetail) {
+      return sum + iterationDetail.Velocity;
+    }, 0) / pastIterationsData.length;
+
+    var maxProjectionValue = initialProjectionValue + backlogData.PlanEstimateTotal;
+
+    //Get future iterations
+    Ext.create('Rally.data.WsapiDataStore', {
+      limit: maxProjectedIterationsCount,
+      model: 'Iteration',
+      fetch: ['Name'],
+      filters: [{
+        property: 'Project.ObjectID',
+        value: Rally.environment.getContext().getProject().ObjectID
+      },{
+        property: 'EndDate',
+        operator: '>=',
+        value: Rally.util.DateTime.toIsoString(new Date())
+      }]
+    }).load().then(function(futureIterationRecords) {
+      var mainChartCategories = _.map(pastIterationsData, function(pastIteration) {
+        return pastIteration.Name;
+      }).concat(_.map(futureIterationRecords, function(futureIterationRecord) {
+        return futureIterationRecord.get('Name');
+      })).concat(_.map(_.range(1, maxProjectedIterationsCount), function(unscheduledIterationNumber) {
+        return 'Unscheduled Iteration ' + unscheduledIterationNumber;
+      }));
+
+
+      var pastIterationsBurnupSeries = {
+        name: 'Past Iteration Burnup',
+        type: 'line',
+        color: '#FF8200',
+        data: _.map(pastIterationsData, function(pastIteration) {
+          return pastIteration.AccumulatedVelocity;
+        }),
+        marker: {
+          symbol: 'circle'
+        }
+      };
+
+      var completionIterationIndices = [];
+      var projectionSeries = _.map(_.range(1, 100001), function(projectionNumber) {
+        var projectionValue = _.last(pastIterationsData, 1)[0].AccumulatedVelocity;
+
+        var projectionData = _.map(_.range(pastIterationsData.length - 1), function(pastIterationNumber) {
+          return null;
+        }).concat(_.map(_.range(maxProjectedIterationsCount), function(futureIterationNumber) {
+          if (projectionValue === maxProjectionValue) {
+            return null;
+          } else if (futureIterationNumber) {
+            projectionValue += pastIterationsData[_.random(0, pastIterationsData.length - 1)].Velocity;
+
+            if (projectionValue >= maxProjectionValue) {
+              completionIterationIndices.push(futureIterationNumber);
+              projectionValue = maxProjectionValue;
+            }
+
+            projectionValue = projectionValue;
+          }
+
+          return projectionValue;
+        }));
+
+        return {
+          name: 'Projections',
+          showInLegend: projectionNumber === 1,
+          type: 'line',
+          color: '#00A9E0',
+          dashStyle: 'ShortDash',
+          lineWidth: 1,
+          marker: {
+            enabled: false,
+            fillColor: '#FF8200',
+            symbol: 'circle'
+          },
+          completedIterationIndex: _.last(completionIterationIndices, 1)[0],
+          data: _.first(projectionData, pastIterationsData.length + _.last(completionIterationIndices, 1)[0]), //Remove unscheduled iterations
+          events: {
+            mouseOver: function() {
+              this.update({
+                lineWidth: 2,
+                color: '#FF8200',
+                dashStyle: 'solid',
+                zIndex: 20,
+                marker: {
+                  enabled: true
+                }
+              });
+            },
+            mouseOut: function() {
+              this.update({
+                lineWidth: 1,
+                color: '#00A9E0',
+                dashStyle: 'ShortDash',
+                zIndex: 5,
+                marker: {
+                  enabled: false
+                }
+              });
+            }
+          }
+        };
+      });
+
+      //Only use the first 75 series' for the line chart
+      if (projectionSeries.length > 75) {
+        projectionSeries = _.first(projectionSeries, 75);
+      }
+
+      var maxCompletionIndex = _.max(_.pluck(projectionSeries, 'completedIterationIndex'));
+      var projectionOuterRangeSeries = {
+        name: 'Outer Projection Range',
+        type: 'arearange',
+        color: '#F5F5F5',
+        data: _.map(_.range(pastIterationsData.length - 1), function(pastIterationNumber) {
+          return [null, null];
+        }).concat(_.map(_.times(maxCompletionIndex + 1), function(projectionIndex) {
+          return [
+            Math.min(maxProjectionValue, initialProjectionValue + (worstIterationVelocity * projectionIndex)),
+            Math.min(maxProjectionValue, initialProjectionValue + (bestIterationVelocity * projectionIndex))
+          ];
+        }))
+      };
+
+      var histogramCategories = _.range(_.min(completionIterationIndices), _.max(completionIterationIndices) + 1);
+      var histogramCounts = _.countBy(completionIterationIndices);
+      var histogramSeries = {
+        name: 'Data',
+        data: _.filter(_.map(histogramCategories, function(iterationIndex) {
+          return ((histogramCounts[iterationIndex] || 0) / completionIterationIndices.length) * 100;
+        }), function(dataPoint) {
+          return dataPoint >= 0.1;
+        })
+      };
+
+
+      deferred.resolve({
+        main: {
+          categories: mainChartCategories,
+          series: _.flatten([pastIterationsBurnupSeries, projectionOuterRangeSeries, projectionSeries]),
+          currentIterationIndex: pastIterationsData.length - 1,
+          scopeLineIndex: _.last(pastIterationsData, 1)[0].AccumulatedVelocity + backlogData.PlanEstimateTotal,
+          lastDefinedIterationIndex: pastIterationsData.length + futureIterationRecords.length - 1
+        },
+        histogram: {
+          categories: histogramCategories,
+          series: [histogramSeries]
+        }
+      });
+    });
+
+    return deferred.promise;
   }
 });
                 Ext.define('ChartRenderer', {
   singleton: true,
 
   render: function(chartData) {
-    var ranges = [
-      [1246406400000, 14.3, 27.7],
-      [1246492800000, 14.5, 27.8],
-      [1246579200000, 15.5, 29.6],
-      [1246665600000, 16.7, 30.7],
-      [1246752000000, 16.5, 25.0],
-      [1246838400000, 17.8, 25.7],
-      [1246924800000, 13.5, 24.8],
-      [1247011200000, 10.5, 21.4],
-      [1247097600000, 9.2, 23.8],
-      [1247184000000, 11.6, 21.8],
-      [1247270400000, 10.7, 23.7],
-      [1247356800000, 11.0, 23.3],
-      [1247443200000, 11.6, 23.7],
-      [1247529600000, 11.8, 20.7],
-      [1247616000000, 12.6, 22.4],
-      [1247702400000, 13.6, 19.6],
-      [1247788800000, 11.4, 22.6],
-      [1247875200000, 13.2, 25.0],
-      [1247961600000, 14.2, 21.6],
-      [1248048000000, 13.1, 17.1],
-      [1248134400000, 12.2, 15.5],
-      [1248220800000, 12.0, 20.8],
-      [1248307200000, 12.0, 17.1],
-      [1248393600000, 12.7, 18.3],
-      [1248480000000, 12.4, 19.4],
-      [1248566400000, 12.6, 19.9],
-      [1248652800000, 11.9, 20.2],
-      [1248739200000, 11.0, 19.3],
-      [1248825600000, 10.8, 17.8],
-      [1248912000000, 11.8, 18.5],
-      [1248998400000, 10.8, 16.1]
-    ];
+    if (chartData) {
+      this.chartData = chartData;
+    }
 
-    var averages = [
-      [1246406400000, 21.5],
-      [1246492800000, 22.1],
-      [1246579200000, 23],
-      [1246665600000, 23.8],
-      [1246752000000, 21.4],
-      [1246838400000, 21.3],
-      [1246924800000, 18.3],
-      [1247011200000, 15.4],
-      [1247097600000, 16.4],
-      [1247184000000, 17.7],
-      [1247270400000, 17.5],
-      [1247356800000, 17.6],
-      [1247443200000, 17.7],
-      [1247529600000, 16.8],
-      [1247616000000, 17.7],
-      [1247702400000, 16.3],
-      [1247788800000, 17.8],
-      [1247875200000, 18.1],
-      [1247961600000, 17.2],
-      [1248048000000, 14.4],
-      [1248134400000, 13.7],
-      [1248220800000, 15.7],
-      [1248307200000, 14.6],
-      [1248393600000, 15.3],
-      [1248480000000, 15.3],
-      [1248566400000, 15.8],
-      [1248652800000, 15.2],
-      [1248739200000, 14.8],
-      [1248825600000, 14.4],
-      [1248912000000, 15],
-      [1248998400000, 13.6]
-    ];
+    Ext.getBody().unmask();
+    this._drawMainChart();
+    this._drawHistogram();
+  },
 
-    Ext.getCmp('chartContainer').removeAll();
-    Ext.getCmp('chartContainer').add({
+  _drawMainChart: function() {
+    Ext.getCmp('mainChartContainer').removeAll();
+    Ext.getCmp('mainChartContainer').add({
       xtype: 'rallychart',
-      id: 'chart',
+      id: 'mainChart',
       chartConfig: {
         chart: {
           type: '',
-          height: Ext.getCmp('chartContainer').getHeight()
+          zoomType: 'xy',
+          spacingBottom: 50,
+          height: Ext.getCmp('mainChartContainer').getHeight()
         },
-        reflow: false,
         title: {
-          text: 'July temperatures'
+          text: ''
         },
         xAxis: {
-          type: 'datetime'
+          labels: {
+            y: 21
+          },
+          tickmarkPlacement: 'on',
+          plotLines: [{
+              color: '#FAD200',
+              width: 2,
+              value: this.chartData.main.currentIterationIndex,
+              zIndex: 10,
+              label: {
+                text: 'Current Iteration',
+                x: 7
+              }
+          },{
+            color: '#FAD200',
+              width: 2,
+              value: this.chartData.main.lastDefinedIterationIndex,
+              zIndex: 10,
+              label: {
+                text: 'Last Defined Iteration',
+                x: 7
+              }
+          }]
         },
         yAxis: {
+          min: 0,
+          maxPadding: Ext.getCmp('mainChartContainer').getHeight() >= 700 ? 0.3 : 0.5,
+          endOnTick: false,
           title: {
-            text: null
-          }
+            text: 'Points'
+          },
+          plotLines: [{
+            color: '#8DC63F',
+            width: 2,
+            value: this.chartData.main.scopeLineIndex,
+            label: {
+              text: 'Current Scope',
+              y: -7
+            },
+            zIndex: 5
+          }]
         },
         tooltip: {
-          crosshairs: true,
-          shared: true,
-          valueSuffix: '°C'
+          enabled: false,
+          crosshairs: [{
+            width: 2,
+            zIndex: 9
+          }]
         },
-        legend: {}
+        legend: {
+          margin: 24,
+          y: 30,
+          itemHoverStyle: {
+            cursor: 'default'
+          }
+        },
+        plotOptions: {
+          line: {
+            events: {
+              legendItemClick: function () {
+                return false;
+              }
+            }
+          },
+          arearange: {
+            lineWidth: 1,
+            lineColor: '#C0C0C0',
+            events: {
+              legendItemClick: function () {
+                return false;
+              }
+            }
+          },
+          series: {
+            animation: false,
+            states: {
+              hover: {
+                enabled: false
+              }
+            }
+          },
+          allowPointSelect: false
+        }
+      },
+      chartColors: _.pluck(this.chartData.main.series, 'color'),
+      chartData: {
+        categories: this.chartData.main.categories,
+        series: this.chartData.main.series
+      },
+      listeners   : {
+        afterrender: function() {
+          this.unmask();
+        }
+      }
+    });
+  },
+
+  _drawHistogram: function() {
+    Ext.getCmp('histogramChartContainer').removeAll();
+    Ext.getCmp('histogramChartContainer').add({
+      xtype: 'rallychart',
+      id: 'histogramChart',
+      chartConfig: {
+        chart: {
+          type: 'column',
+          height: Ext.getCmp('mainChartContainer').getHeight()
+        },
+        title: {
+          text: ''
+        },
+        xAxis: {
+          title: {
+            text: 'Future Iterations'
+          }
+        },
+        yAxis: {
+          min: 0,
+          endOnTick: false,
+          opposite: true,
+          allowDecimals: false,
+          title: {
+            text: 'Frequency'
+          },
+          labels: {
+            formatter: function() {
+              return this.value + '%';
+            }
+          }
+        },
+        legend: {
+          enabled: false
+        },
+        tooltip: {
+          formatter: function() {
+            return (Math.round(this.y * 100) / 100) + '%';
+          }
+        },
+        plotOptions: {
+          series: {
+            animation: false
+          },
+          column: {
+            pointPadding: -0.25,
+            borderWidth: 0
+          }
+        }
       },
       chartData: {
-        series: [{
-          name: 'Temperature',
-          data: averages,
-          zIndex: 1,
-          marker: {
-            fillColor: 'white',
-            lineWidth: 2
-          }
-        },{
-          name: 'Range',
-          data: ranges,
-          type: 'arearange',
-          lineWidth: 0,
-          linkedTo: ':previous',
-          fillOpacity: 0.3,
-          zIndex: 0
-        }]
+        categories: ChartRenderer.chartData.histogram.categories,
+        series: ChartRenderer.chartData.histogram.series
+      },
+      chartColors: ['#00A9E0'],
+      listeners: {
+        afterrender : function() {
+          this.unmask();
+        }
       }
     });
   }
@@ -299,14 +536,28 @@
     launch: function() {
       this._setupUI();
 
-      this.piOID = 19728385560; //Will be set by "_changePortfolioItem"
+      this.activePortfolioItem = {
+        piOID: 19728385560,
+        title: 'I3180: New Iteration Status Page - Improve Performance and Make Default'
+      };
+
+      this._update();
+    },
+
+    _update: function() {
+      Ext.getCmp('mainChartContainer').removeAll();
+      Ext.getCmp('histogramChartContainer').removeAll();
+      Ext.getBody().mask('Loading');
+
+      Ext.getCmp('activePortfolioItemContainer').update(this.activePortfolioItem.title);
 
       Deft.Chain.pipeline([
         DataFetcher.getChartData,
         DataAggregator.parseChartData
       ], this).then({
-        success: ChartRenderer.render
-        // failure: this._showErrorMsg
+        success: ChartRenderer.render,
+        failure: this._showErrorMsg,
+        scope: ChartRenderer
       });
     },
 
@@ -316,34 +567,82 @@
 
     _setupUI: function() {
       this.add([{
-        region: 'north',
-        xtype: 'container',
-        layout: 'hbox',
-        items: [{
-          xtype: 'component',
-          flex: 1
-        },{
-          xtype: 'rallybutton',
-          text: '<span class="icon-gear icon-large"></span>',
-          margin: '3 3 3 3',
-          arrowCls: '',
-          menu: {
-            xtype: 'menu',
-            items: [{
-              text: 'Change Portfolio Item',
-              listeners: {
-                click: this._changePortfolioItem,
-                scope: this
-              }
-            }]
-          }
-        }]
-      },{
         region: 'center',
         xtype: 'container',
-        id: 'chartContainer',
+        layout: 'border',
+        defaults: {
+          xtype: 'container',
+          style: {
+            background: 'white'
+          }
+        },
+        listeners: {
+          resize: function(me, width, height, oldWidth, oldHeight) {
+            if (height !== oldHeight && Ext.getCmp('mainChart')) {
+              ChartRenderer.render();
+            }
+          }
+        },
+        items: [{
+          region: 'north',
+          xtype: 'container',
+          layout: 'hbox',
+          style: {
+            background: '#FFF'
+          },
+          defaults: {
+            margin: '3 0 3 3',
+            height: 33,
+            width: 33
+          },
+          items: [{
+            xtype: 'rallybutton',
+            text: '<span class="icon-gear icon-large"></span>',
+            arrowCls: '',
+            menu: {
+              xtype: 'menu',
+              items: [{
+                text: 'Change Portfolio Item',
+                listeners: {
+                  click: this._changePortfolioItem,
+                  scope: this
+                }
+              }]
+            }
+          },{
+            xtype: 'rallybutton',
+            text: '<span class="icon-refresh icon-large"></span>',
+            listeners: {
+              click: this._update,
+              scope: this
+            }
+          }, {
+            xtype: 'component',
+            id: 'activePortfolioItemContainer',
+            margin: '12 0 0 15',
+            flex: 1,
+            style: {
+              fontSize: '13px',
+              fontFamily: 'ProximaNova,Helvetica',
+              textTransform: 'uppercase'
+            }
+          }]
+        },{
+          region: 'center',
+          id: 'mainChartContainer'
+        }]
+      },{
+        region: 'east',
+        collapsible: true,
+        collapsed: true,
+        stateful: true,
+        stateId: 'histogram-container-state',
+        border: false,
+        title: 'Frequency Histogram',
+        id: 'histogramChartContainer',
+        width: 500,
         style: {
-          background: 'red'
+          borderLeft: '1px solid #D6D6D6'
         }
       }]);
     },
@@ -372,30 +671,65 @@
 
     _selectNewPortfolioItem: function() {
       var deferred = Ext.create('Deft.Deferred');
-      Ext.create('Rally.ui.dialog.SolrArtifactChooserDialog', {
-        artifactTypes: ['PortfolioItem'],
-        autoShow: true,
-        closable: false,
-        height: 500,
-        title: 'Choose Portfolio Item',
-        storeConfig: {
-          sorters: [{
-            property: 'FormattedID',
-            direction: 'ASC'
-          }]
-        },
-        listeners: {
-          artifactchosen: function(chooser, selectedRecord) {
-            chooser.recordSelected = true;
-            deferred.resolve(selectedRecord);
-          },
-          close: function(chooser) {
-            if (!chooser.recordSelected) {
-              deferred.reject();
+
+      Ext.create('Rally.data.WsapiDataStore', {
+        model: 'TypeDefinition',
+        filters: [{
+          property: 'TypePath',
+          operator: 'contains',
+          value: 'PortfolioItem/'
+        }]
+      }).load().then(function(typeDefRecords) {
+        var modelNames = _.map(typeDefRecords, function(typeDefRecord) {
+          return typeDefRecord.get('TypePath');
+        });
+
+        Ext.create('Rally.ui.dialog.ChooserDialog', {
+            title: 'Choose Portfolio Item',
+            selectionButtonText: 'Save',
+            artifactTypes: modelNames,
+            autoShow: true,
+            modal: true,
+            height: 510,
+            width: 700,
+            movable: true,
+            columns: [{
+                dataIndex: 'FormattedID',
+                maxWidth: 65
+            },{
+                dataIndex: 'Name',
+                flex: 1
+            }],
+            storeConfig: {
+                pageSize: 20000,
+                sorters: [{
+                    property: 'FormattedID',
+                    direction: 'ASC'
+                }]
+            },
+            gridConfig: {
+                showPagingToolbar: false,
+                margin: '5 0 11 0',
+                style: {
+                    borderBottom: '2px solid #888888'
+                }
+            },
+            listeners: {
+                artifactChosen: function(artifact, scope) {
+                  if (artifact) {
+                    scope.artifactHasBeenChosen = true;
+                    deferred.resolve(artifact);
+                  }
+                },
+                close: function(chooser, scope) {
+                  if (!scope.artifactHasBeenChosen) {
+                    deferred.reject();
+                  }
+                },
+                artifactHasBeenChosen: false,
+                scope: this
             }
-          },
-          scope: this
-        }
+        });
       });
       return deferred.promise;
     },
@@ -416,7 +750,6 @@
       var deferred = Ext.create('Deft.Deferred');
       deferred.resolve(19728385560); //I3180
       return deferred.promise;
-
 
       // Rally.data.PreferenceManager.load({
       //   filterByUser: true,
@@ -439,7 +772,13 @@
 
 
     <style type="text/css">
-        
+        .app {
+  overflow: hidden !important;
+}
+#histogramChartContainer-placeholder {
+  border-left: 1px solid #D6D6D6;
+}
+
     </style>
 </head>
 <body>

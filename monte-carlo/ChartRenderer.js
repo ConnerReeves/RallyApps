@@ -3,10 +3,15 @@ Ext.define('ChartRenderer', {
 
   render: function(chartData) {
     if (chartData) {
-      console.log(chartData);
       this.chartData = chartData;
     }
 
+    Ext.getBody().unmask();
+    this._drawMainChart();
+    this._drawHistogram();
+  },
+
+  _drawMainChart: function() {
     Ext.getCmp('mainChartContainer').removeAll();
     Ext.getCmp('mainChartContainer').add({
       xtype: 'rallychart',
@@ -15,7 +20,7 @@ Ext.define('ChartRenderer', {
         chart: {
           type: '',
           zoomType: 'xy',
-          spacingRight: 25,
+          spacingBottom: 50,
           height: Ext.getCmp('mainChartContainer').getHeight()
         },
         title: {
@@ -29,16 +34,26 @@ Ext.define('ChartRenderer', {
           plotLines: [{
               color: '#FAD200',
               width: 2,
-              value: this.chartData.main.todayLineIndex,
+              value: this.chartData.main.currentIterationIndex,
+              zIndex: 10,
               label: {
-                text: 'Today',
+                text: 'Current Iteration',
+                x: 7
+              }
+          },{
+            color: '#FAD200',
+              width: 2,
+              value: this.chartData.main.lastDefinedIterationIndex,
+              zIndex: 10,
+              label: {
+                text: 'Last Defined Iteration',
                 x: 7
               }
           }]
         },
         yAxis: {
           min: 0,
-          max: this.chartData.main.scopeLineIndex * 1.075,
+          maxPadding: Ext.getCmp('mainChartContainer').getHeight() >= 700 ? 0.3 : 0.5,
           endOnTick: false,
           title: {
             text: 'Points'
@@ -54,11 +69,46 @@ Ext.define('ChartRenderer', {
             zIndex: 5
           }]
         },
-        legend: {
-          enabled: false
-        },
         tooltip: {
-          enabled: false
+          enabled: false,
+          crosshairs: [{
+            width: 2,
+            zIndex: 9
+          }]
+        },
+        legend: {
+          margin: 24,
+          y: 30,
+          itemHoverStyle: {
+            cursor: 'default'
+          }
+        },
+        plotOptions: {
+          line: {
+            events: {
+              legendItemClick: function () {
+                return false;
+              }
+            }
+          },
+          arearange: {
+            lineWidth: 1,
+            lineColor: '#C0C0C0',
+            events: {
+              legendItemClick: function () {
+                return false;
+              }
+            }
+          },
+          series: {
+            animation: false,
+            states: {
+              hover: {
+                enabled: false
+              }
+            }
+          },
+          allowPointSelect: false
         }
       },
       chartColors: _.pluck(this.chartData.main.series, 'color'),
@@ -67,72 +117,73 @@ Ext.define('ChartRenderer', {
         series: this.chartData.main.series
       },
       listeners   : {
+        afterrender: function() {
+          this.unmask();
+        }
+      }
+    });
+  },
+
+  _drawHistogram: function() {
+    Ext.getCmp('histogramChartContainer').removeAll();
+    Ext.getCmp('histogramChartContainer').add({
+      xtype: 'rallychart',
+      id: 'histogramChart',
+      chartConfig: {
+        chart: {
+          type: 'column',
+          height: Ext.getCmp('mainChartContainer').getHeight()
+        },
+        title: {
+          text: ''
+        },
+        xAxis: {
+          title: {
+            text: 'Future Iterations'
+          }
+        },
+        yAxis: {
+          min: 0,
+          endOnTick: false,
+          opposite: true,
+          allowDecimals: false,
+          title: {
+            text: 'Frequency'
+          },
+          labels: {
+            formatter: function() {
+              return this.value + '%';
+            }
+          }
+        },
+        legend: {
+          enabled: false
+        },
+        tooltip: {
+          formatter: function() {
+            return (Math.round(this.y * 100) / 100) + '%';
+          }
+        },
+        plotOptions: {
+          series: {
+            animation: false
+          },
+          column: {
+            pointPadding: -0.25,
+            borderWidth: 0
+          }
+        }
+      },
+      chartData: {
+        categories: ChartRenderer.chartData.histogram.categories,
+        series: ChartRenderer.chartData.histogram.series
+      },
+      chartColors: ['#00A9E0'],
+      listeners: {
         afterrender : function() {
           this.unmask();
         }
       }
     });
-
-    Ext.getCmp('histogramChartContainer').removeAll();
-    _.delay(function() { //This solution sucks... Look into Deft chain
-      Ext.getCmp('histogramChartContainer').add({
-        xtype: 'rallychart',
-        id: 'histogramChart',
-        chartConfig: {
-          chart: {
-            type: 'column',
-            height: Ext.getCmp('mainChartContainer').getHeight()
-          },
-          title: {
-            text: ''
-          },
-          xAxis: {
-            title: {
-              text: 'Future Iterations'
-            }
-          },
-          yAxis: {
-            min: 0,
-            endOnTick: false,
-            opposite: true,
-            allowDecimals: false,
-            title: {
-              text: 'Frequency'
-            },
-            labels: {
-              formatter: function() {
-                return this.value + '%';
-              }
-            }
-          },
-          legend: {
-            enabled: false
-          },
-          tooltip: {
-            formatter: function() {
-              return (Math.round(this.y * 100) / 100) + '%';
-            }
-          },
-          plotOptions: {
-            column: {
-              pointPadding: -.25,
-              borderWidth: 0
-            }
-          }        
-        },
-        chartData: {
-          categories: ChartRenderer.chartData.histogram.categories,
-          series: ChartRenderer.chartData.histogram.series
-        },
-        chartColors: ['#00A9E0'],
-        listeners: {
-          afterrender : function() {
-            this.unmask();
-          }
-        }
-      });
-
-    }, 100);
-
   }
 });

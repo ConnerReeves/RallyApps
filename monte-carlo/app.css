@@ -1,3 +1,7 @@
 .app {
 	overflow: hidden !important;
 }
+
+#histogramChartContainer-placeholder {
+  border-left: 1px solid #D6D6D6;
+}

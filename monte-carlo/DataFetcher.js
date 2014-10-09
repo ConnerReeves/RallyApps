@@ -23,7 +23,7 @@ Ext.define('DataFetcher', {
         value: ['Defect', 'HierarchicalRequirement']
       },{
         property: '_ItemHierarchy',
-        value: this.piOID
+        value: this.activePortfolioItem.piOID
       },{
         property: 'PlanEstimate',
         operator: '>',

@@ -2,19 +2,26 @@ Ext.define('CustomApp', {
     extend: 'Rally.app.App',
     componentCls: 'app',
 
-    layout: {
-      type: 'vbox',
-      pack: 'start',
-      align: 'stretch'
-    },
+    layout: 'border',
 
     launch: function() {
       this._setupUI();
-      this.piOID = 19728385560; //Will be set by "_changePortfolioItem"
+
+      this.activePortfolioItem = {
+        piOID: 19728385560,
+        title: 'I3180: New Iteration Status Page - Improve Performance and Make Default'
+      };
+
       this._update();
     },
 
     _update: function() {
+      Ext.getCmp('mainChartContainer').removeAll();
+      Ext.getCmp('histogramChartContainer').removeAll();
+      Ext.getBody().mask('Loading');
+
+      Ext.getCmp('activePortfolioItemContainer').update(this.activePortfolioItem.title);
+
       Deft.Chain.pipeline([
         DataFetcher.getChartData,
         DataAggregator.parseChartData
@@ -31,65 +38,82 @@ Ext.define('CustomApp', {
 
     _setupUI: function() {
       this.add([{
-        region: 'north',
+        region: 'center',
         xtype: 'container',
-        layout: 'hbox',
-        style: {
-          background: '#FFF'
-        },
-        defaults: {
-          margin: '3 0 3 3',
-          height: 33
-        },
-        items: [{
-          xtype: 'rallybutton',
-          text: '<span class="icon-gear icon-large"></span>',
-          arrowCls: '',
-          menu: {
-            xtype: 'menu',
-            items: [{
-              text: 'Change Portfolio Item',
-              listeners: {
-                click: this._changePortfolioItem,
-                scope: this
-              }
-            }]
-          }
-        },{
-          xtype: 'rallybutton',
-          text: '<span class="icon-refresh icon-large"></span>',
-          listeners: {
-            click: this._update,
-            scope: this
-          }
-        }]
-      },{
-        xtype: 'container',
-        flex: 1,
-        layout: {
-          type: 'hbox',
-          pack: 'start',
-          align: 'stretch'
-        },
+        layout: 'border',
         defaults: {
           xtype: 'container',
           style: {
             background: 'white'
           }
         },
-        items: [{
-          id: 'mainChartContainer',
-          flex: 2,
-        },{
-          id: 'histogramChartContainer',
-          flex: 1,
-        }],
         listeners: {
           resize: function(me, width, height, oldWidth, oldHeight) {
             if (height !== oldHeight && Ext.getCmp('mainChart')) {
               ChartRenderer.render();
             }
           }
+        },
+        items: [{
+          region: 'north',
+          xtype: 'container',
+          layout: 'hbox',
+          style: {
+            background: '#FFF'
+          },
+          defaults: {
+            margin: '3 0 3 3',
+            height: 33,
+            width: 33
+          },
+          items: [{
+            xtype: 'rallybutton',
+            text: '<span class="icon-gear icon-large"></span>',
+            arrowCls: '',
+            menu: {
+              xtype: 'menu',
+              items: [{
+                text: 'Change Portfolio Item',
+                listeners: {
+                  click: this._changePortfolioItem,
+                  scope: this
+                }
+              }]
+            }
+          },{
+            xtype: 'rallybutton',
+            text: '<span class="icon-refresh icon-large"></span>',
+            listeners: {
+              click: this._update,
+              scope: this
+            }
+          }, {
+            xtype: 'component',
+            id: 'activePortfolioItemContainer',
+            margin: '12 0 0 15',
+            flex: 1,
+            style: {
+              fontSize: '13px',
+              fontFamily: 'ProximaNova,Helvetica',
+              textTransform: 'uppercase'
+            }
+          }]
+        },{
+          region: 'center',
+          id: 'mainChartContainer'
+        }]
+      },{
+        region: 'east',
+        collapsible: true,
+        collapsed: true,
+        stateful: true,
+        stateId: 'histogram-container-state',
+        border: false,
+        title: 'Frequency Histogram',
+        id: 'histogramChartContainer',
+        width: 500,
+        style: {
+          borderLeft: '1px solid #D6D6D6'
         }
       }]);
     },

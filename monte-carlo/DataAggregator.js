@@ -73,7 +73,6 @@ Ext.define('DataAggregator', {
     var maxProjectionValue = initialProjectionValue + backlogData.PlanEstimateTotal;
 
     //Get future iterations
-    console.log(maxProjectedIterationsCount)
     Ext.create('Rally.data.WsapiDataStore', {
       limit: maxProjectedIterationsCount,
       model: 'Iteration',
@@ -91,21 +90,10 @@ Ext.define('DataAggregator', {
         return pastIteration.Name;
       }).concat(_.map(futureIterationRecords, function(futureIterationRecord) {
         return futureIterationRecord.get('Name');
-      })); 
+      })).concat(_.map(_.range(1, maxProjectedIterationsCount), function(unscheduledIterationNumber) {
+        return 'Unscheduled Iteration ' + unscheduledIterationNumber;
+      }));
 
-      var projectionOuterRangeSeries = {
-        name: 'Outer Projection Range',
-        type: 'arearange',
-        color: '#E6E6E6',
-        data: _.map(_.range(pastIterationsData.length - 1), function(pastIterationNumber) {
-          return [null, null];
-        }).concat(_.map(futureIterationRecords, function(futureIterationRecord, projectionIndex) {
-          return [
-            Math.min(maxProjectionValue, initialProjectionValue + (worstIterationVelocity * projectionIndex)),
-            Math.min(maxProjectionValue, initialProjectionValue + (bestIterationVelocity * projectionIndex))
-          ];
-        }))
-      };
 
       var pastIterationsBurnupSeries = {
         name: 'Past Iteration Burnup',
@@ -113,13 +101,16 @@ Ext.define('DataAggregator', {
         color: '#FF8200',
         data: _.map(pastIterationsData, function(pastIteration) {
           return pastIteration.AccumulatedVelocity;
-        })
+        }),
+        marker: {
+          symbol: 'circle'
+        }
       };
 
       var completionIterationIndices = [];
-      var projectionSeries = _.map(_.range(1, 50001), function(projectionNumber) {
-        var projectionValue = _.last(pastIterationsData, 1)[0].AccumulatedVelocity; 
-        
+      var projectionSeries = _.map(_.range(1, 100001), function(projectionNumber) {
+        var projectionValue = _.last(pastIterationsData, 1)[0].AccumulatedVelocity;
+
         var projectionData = _.map(_.range(pastIterationsData.length - 1), function(pastIterationNumber) {
           return null;
         }).concat(_.map(_.range(maxProjectedIterationsCount), function(futureIterationNumber) {
@@ -127,7 +118,7 @@ Ext.define('DataAggregator', {
             return null;
           } else if (futureIterationNumber) {
             projectionValue += pastIterationsData[_.random(0, pastIterationsData.length - 1)].Velocity;
-            
+
             if (projectionValue >= maxProjectionValue) {
               completionIterationIndices.push(futureIterationNumber);
               projectionValue = maxProjectionValue;
@@ -135,42 +126,90 @@ Ext.define('DataAggregator', {
 
             projectionValue = projectionValue;
           }
-          
+
           return projectionValue;
         }));
 
         return {
-          name: 'Projection ' + projectionNumber,
+          name: 'Projections',
+          showInLegend: projectionNumber === 1,
           type: 'line',
           color: '#00A9E0',
           dashStyle: 'ShortDash',
           lineWidth: 1,
           marker: {
-            enabled: false
+            enabled: false,
+            fillColor: '#FF8200',
+            symbol: 'circle'
           },
-          data: _.first(projectionData, pastIterationsData.length + futureIterationRecords.length - 1) //Remove unscheduled iterations
+          completedIterationIndex: _.last(completionIterationIndices, 1)[0],
+          data: _.first(projectionData, pastIterationsData.length + _.last(completionIterationIndices, 1)[0]), //Remove unscheduled iterations
+          events: {
+            mouseOver: function() {
+              this.update({
+                lineWidth: 2,
+                color: '#FF8200',
+                dashStyle: 'solid',
+                zIndex: 20,
+                marker: {
+                  enabled: true
+                }
+              });
+            },
+            mouseOut: function() {
+              this.update({
+                lineWidth: 1,
+                color: '#00A9E0',
+                dashStyle: 'ShortDash',
+                zIndex: 5,
+                marker: {
+                  enabled: false
+                }
+              });
+            }
+          }
         };
       });
+
+      //Only use the first 75 series' for the line chart
+      if (projectionSeries.length > 75) {
+        projectionSeries = _.first(projectionSeries, 75);
+      }
+
+      var maxCompletionIndex = _.max(_.pluck(projectionSeries, 'completedIterationIndex'));
+      var projectionOuterRangeSeries = {
+        name: 'Outer Projection Range',
+        type: 'arearange',
+        color: '#F5F5F5',
+        data: _.map(_.range(pastIterationsData.length - 1), function(pastIterationNumber) {
+          return [null, null];
+        }).concat(_.map(_.times(maxCompletionIndex + 1), function(projectionIndex) {
+          return [
+            Math.min(maxProjectionValue, initialProjectionValue + (worstIterationVelocity * projectionIndex)),
+            Math.min(maxProjectionValue, initialProjectionValue + (bestIterationVelocity * projectionIndex))
+          ];
+        }))
+      };
 
       var histogramCategories = _.range(_.min(completionIterationIndices), _.max(completionIterationIndices) + 1);
       var histogramCounts = _.countBy(completionIterationIndices);
       var histogramSeries = {
         name: 'Data',
-        data: _.map(histogramCategories, function(iterationIndex) {
+        data: _.filter(_.map(histogramCategories, function(iterationIndex) {
           return ((histogramCounts[iterationIndex] || 0) / completionIterationIndices.length) * 100;
+        }), function(dataPoint) {
+          return dataPoint >= 0.1;
         })
       };
 
-      if (projectionSeries.length > 50) {
-        projectionSeries = _.first(projectionSeries, 50);
-      }
 
       deferred.resolve({
         main: {
           categories: mainChartCategories,
           series: _.flatten([pastIterationsBurnupSeries, projectionOuterRangeSeries, projectionSeries]),
-          todayLineIndex: pastIterationsData.length - 1,
-          scopeLineIndex: _.last(pastIterationsData, 1)[0].AccumulatedVelocity + backlogData.PlanEstimateTotal
+          currentIterationIndex: pastIterationsData.length - 1,
+          scopeLineIndex: _.last(pastIterationsData, 1)[0].AccumulatedVelocity + backlogData.PlanEstimateTotal,
+          lastDefinedIterationIndex: pastIterationsData.length + futureIterationRecords.length - 1
         },
         histogram: {
           categories: histogramCategories,
