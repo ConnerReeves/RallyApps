@@ -33,7 +33,14 @@ Ext.define('CustomApp', {
     },
 
     _showErrorMsg: function(err) {
-      console.log('error', err);
+      Ext.getBody().unmask();
+
+      if (err) {
+        Rally.ui.notify.Notifier.showError({
+          message: err,
+          duration: 5000
+        });
+      }
     },
 
     _setupUI: function() {
@@ -78,6 +85,62 @@ Ext.define('CustomApp', {
                   click: this._changePortfolioItem,
                   scope: this
                 }
+              },{
+                text: 'Projection Permutations',
+                menu: {
+                  xtype: 'menu',
+                  defaults: {
+                    xtype: 'menucheckitem',
+                    group: 'projectionPermutations',
+                    handler: function(item) {
+                      DataAggregator.permutationCount = item.val;
+                      this._update();
+                    },
+                    scope: this
+                  },
+                  items: [{
+                    text: 'High (1,000,000)',
+                    val: 1000000
+                  },{
+                    text: 'Medium (100,000)',
+                    checked: true,
+                    val: 100000
+                  },{
+                    text: 'Low (10,000)',
+                    val: 10000
+                  },{
+                    text: 'Very Low (1,000)',
+                    val: 1000
+                  }]
+                }
+              },{
+                text: 'Visualization Granularity',
+                menu: {
+                  xtype: 'menu',
+                  defaults: {
+                    xtype: 'menucheckitem',
+                    group: 'visualizationGranularity',
+                    handler: function(item) {
+                      DataAggregator.visualizationGranularity = item.val;
+                      this._update();
+                    },
+                    scope: this
+                  },
+                  items: [{
+                    text: 'Very High (250)',
+                    val: 250
+                  },{
+                    text: 'High (100)',
+                    val: 100
+                  },{
+                    text: 'Medium (50)',
+                    val: 50,
+                    checked: true
+                  },{
+                    text: 'Low (10)',
+                    val: 10
+                  }]
+                }
               }]
             }
           },{
@@ -106,12 +169,15 @@ Ext.define('CustomApp', {
         region: 'east',
         collapsible: true,
         collapsed: true,
+        resizable: true,
         stateful: true,
         stateId: 'histogram-container-state',
         border: false,
         title: 'Frequency Histogram',
         id: 'histogramChartContainer',
         width: 500,
+        minWidth: 300,
+        maxWidth: 700,
         style: {
           borderLeft: '1px solid #D6D6D6'
         }
@@ -128,15 +194,11 @@ Ext.define('CustomApp', {
             message  : 'Settings saved successfully.',
             duration : 3000
           });
+
+          this._update();
         },
-        failure: function(err) {
-          if (err) {
-            Rally.ui.notify.Notifier.showError({
-              message: err,
-              duration: 5000
-            });
-          }
-        }
+        failure: this._showErrorMsg,
+        scope: this
       });
     },
 
@@ -207,7 +269,14 @@ Ext.define('CustomApp', {
 
     _saveSelectedPortfolioItem: function(selectedRecord) {
       var deferred = Ext.create('Deft.Deferred');
-      deferred.reject('Not availible yet...');
+
+      this.activePortfolioItem = {
+        piOID: selectedRecord.get('ObjectID'),
+        title: selectedRecord.get('FormattedID') + ': ' + selectedRecord.get('Name')
+      };
+
+      deferred.resolve();
+
       // Rally.data.PreferenceManager.update({
       //   filterByUser: true,
       //   settings: {

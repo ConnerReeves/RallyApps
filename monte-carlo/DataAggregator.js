@@ -1,6 +1,9 @@
 Ext.define('DataAggregator', {
   singleton: true,
 
+  permutationCount: 100000,
+  visualizationGranularity: 50,
+
   parseChartData: function(chartData) {
     return DataAggregator._calculateIterationVelocities(chartData)
       .then(DataAggregator._projectFutureIterations);
@@ -108,7 +111,7 @@ Ext.define('DataAggregator', {
       };
 
       var completionIterationIndices = [];
-      var projectionSeries = _.map(_.range(1, 100001), function(projectionNumber) {
+      var projectionSeries = _.map(_.range(1, DataAggregator.permutationCount + 1), function(projectionNumber) {
         var projectionValue = _.last(pastIterationsData, 1)[0].AccumulatedVelocity;
 
         var projectionData = _.map(_.range(pastIterationsData.length - 1), function(pastIterationNumber) {
@@ -171,9 +174,8 @@ Ext.define('DataAggregator', {
         };
       });
 
-      //Only use the first 75 series' for the line chart
-      if (projectionSeries.length > 75) {
-        projectionSeries = _.first(projectionSeries, 75);
+      if (projectionSeries.length > DataAggregator.visualizationGranularity) {
+        projectionSeries = _.first(projectionSeries, DataAggregator.visualizationGranularity);
       }
 
       var maxCompletionIndex = _.max(_.pluck(projectionSeries, 'completedIterationIndex'));

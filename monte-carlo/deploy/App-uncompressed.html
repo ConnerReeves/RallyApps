@@ -118,6 +118,9 @@
                 Ext.define('DataAggregator', {
   singleton: true,
 
+  permutationCount: 100000,
+  visualizationGranularity: 50,
+
   parseChartData: function(chartData) {
     return DataAggregator._calculateIterationVelocities(chartData)
       .then(DataAggregator._projectFutureIterations);
@@ -225,7 +228,7 @@
       };
 
       var completionIterationIndices = [];
-      var projectionSeries = _.map(_.range(1, 100001), function(projectionNumber) {
+      var projectionSeries = _.map(_.range(1, DataAggregator.permutationCount + 1), function(projectionNumber) {
         var projectionValue = _.last(pastIterationsData, 1)[0].AccumulatedVelocity;
 
         var projectionData = _.map(_.range(pastIterationsData.length - 1), function(pastIterationNumber) {
@@ -288,9 +291,8 @@
         };
       });
 
-      //Only use the first 75 series' for the line chart
-      if (projectionSeries.length > 75) {
-        projectionSeries = _.first(projectionSeries, 75);
+      if (projectionSeries.length > DataAggregator.visualizationGranularity) {
+        projectionSeries = _.first(projectionSeries, DataAggregator.visualizationGranularity);
       }
 
       var maxCompletionIndex = _.max(_.pluck(projectionSeries, 'completedIterationIndex'));
@@ -500,8 +502,20 @@
           enabled: false
         },
         tooltip: {
+          useHTML: true,
           formatter: function() {
-            return (Math.round(this.y * 100) / 100) + '%';
+            var onOrBeforePercentage = _.reduce(this.series.data, function(sum, seriesPoint) {
+              return sum + (seriesPoint.category <= this.x ? seriesPoint.y : 0);
+            }, 0, this);
+
+            var tooltipTable = (
+              '<table>' +
+                '<tr><td style="text-align:right">This Iteration:</td><td>' + (Math.round(this.y * 100) / 100) + '%</td></tr>' +
+                '<tr><td style="text-align:right">On or Before:</td><td>' + (Math.round(onOrBeforePercentage * 100) / 100) + '%</td></tr>' +
+              '</table>'
+            );
+
+            return tooltipTable;
           }
         },
         plotOptions: {
@@ -562,7 +576,14 @@
     },
 
     _showErrorMsg: function(err) {
-      console.log('error', err);
+      Ext.getBody().unmask();
+
+      if (err) {
+        Rally.ui.notify.Notifier.showError({
+          message: err,
+          duration: 5000
+        });
+      }
     },
 
     _setupUI: function() {
@@ -607,6 +628,62 @@
                   click: this._changePortfolioItem,
                   scope: this
                 }
+              },{
+                text: 'Projection Permutations',
+                menu: {
+                  xtype: 'menu',
+                  defaults: {
+                    xtype: 'menucheckitem',
+                    group: 'projectionPermutations',
+                    handler: function(item) {
+                      DataAggregator.permutationCount = item.val;
+                      this._update();
+                    },
+                    scope: this
+                  },
+                  items: [{
+                    text: 'High (1,000,000)',
+                    val: 1000000
+                  },{
+                    text: 'Medium (100,000)',
+                    checked: true,
+                    val: 100000
+                  },{
+                    text: 'Low (10,000)',
+                    val: 10000
+                  },{
+                    text: 'Very Low (1,000)',
+                    val: 1000
+                  }]
+                }
+              },{
+                text: 'Visualization Granularity',
+                menu: {
+                  xtype: 'menu',
+                  defaults: {
+                    xtype: 'menucheckitem',
+                    group: 'visualizationGranularity',
+                    handler: function(item) {
+                      DataAggregator.visualizationGranularity = item.val;
+                      this._update();
+                    },
+                    scope: this
+                  },
+                  items: [{
+                    text: 'Very High (250)',
+                    val: 250
+                  },{
+                    text: 'High (100)',
+                    val: 100
+                  },{
+                    text: 'Medium (50)',
+                    val: 50,
+                    checked: true
+                  },{
+                    text: 'Low (10)',
+                    val: 10
+                  }]
+                }
               }]
             }
           },{
@@ -635,12 +712,15 @@
         region: 'east',
         collapsible: true,
         collapsed: true,
+        resizable: true,
         stateful: true,
         stateId: 'histogram-container-state',
         border: false,
         title: 'Frequency Histogram',
         id: 'histogramChartContainer',
         width: 500,
+        minWidth: 300,
+        maxWidth: 700,
         style: {
           borderLeft: '1px solid #D6D6D6'
         }
@@ -657,15 +737,11 @@
             message  : 'Settings saved successfully.',
             duration : 3000
           });
+
+          this._update();
         },
-        failure: function(err) {
-          if (err) {
-            Rally.ui.notify.Notifier.showError({
-              message: err,
-              duration: 5000
-            });
-          }
-        }
+        failure: this._showErrorMsg,
+        scope: this
       });
     },
 
@@ -736,7 +812,14 @@
 
     _saveSelectedPortfolioItem: function(selectedRecord) {
       var deferred = Ext.create('Deft.Deferred');
-      deferred.reject('Not availible yet...');
+
+      this.activePortfolioItem = {
+        piOID: selectedRecord.get('ObjectID'),
+        title: selectedRecord.get('FormattedID') + ': ' + selectedRecord.get('Name')
+      };
+
+      deferred.resolve();
+
       // Rally.data.PreferenceManager.update({
       //   filterByUser: true,
       //   settings: {

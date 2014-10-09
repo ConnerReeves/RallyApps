@@ -160,8 +160,20 @@ Ext.define('ChartRenderer', {
           enabled: false
         },
         tooltip: {
+          useHTML: true,
           formatter: function() {
-            return (Math.round(this.y * 100) / 100) + '%';
+            var onOrBeforePercentage = _.reduce(this.series.data, function(sum, seriesPoint) {
+              return sum + (seriesPoint.category <= this.x ? seriesPoint.y : 0);
+            }, 0, this);
+
+            var tooltipTable = (
+              '<table>' +
+                '<tr><td style="text-align:right">This Iteration:</td><td>' + (Math.round(this.y * 100) / 100) + '%</td></tr>' +
+                '<tr><td style="text-align:right">On or Before:</td><td>' + (Math.round(onOrBeforePercentage * 100) / 100) + '%</td></tr>' +
+              '</table>'
+            );
+
+            return tooltipTable;
           }
         },
         plotOptions: {
