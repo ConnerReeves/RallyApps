@@ -7,12 +7,12 @@ Ext.define('CustomApp', {
     launch: function() {
       this._setupUI();
 
-      this.activePortfolioItem = {
-        piOID: 19728385560,
-        title: 'I3180: New Iteration Status Page - Improve Performance and Make Default'
-      };
+      // this.activePortfolioItem = {
+      //   piOID: 19728385560,
+      //   title: 'I3180: New Iteration Status Page - Improve Performance and Make Default'
+      // };
 
-      this._update();
+      // this._update();
     },
 
     _update: function() {
@@ -75,7 +75,21 @@ Ext.define('CustomApp', {
           },
           items: [{
             xtype: 'rallybutton',
+            text: '<span class="icon-refresh icon-large"></span>',
+            listeners: {
+              click: this._update,
+              scope: this
+            }
+          },{
+            xtype: 'rallybutton',
+            id: 'gearBtn',
             text: '<span class="icon-gear icon-large"></span>',
+            toolTipConfig: {
+              html: 'Add a Portfolio Item...',
+              anchor: 'right',
+              width: 140,
+              showDelay: 5000
+            },
             arrowCls: '',
             menu: {
               xtype: 'menu',
@@ -144,13 +158,6 @@ Ext.define('CustomApp', {
               }]
             }
           },{
-            xtype: 'rallybutton',
-            text: '<span class="icon-refresh icon-large"></span>',
-            listeners: {
-              click: this._update,
-              scope: this
-            }
-          }, {
             xtype: 'component',
             id: 'activePortfolioItemContainer',
             margin: '12 0 0 15',
@@ -159,6 +166,13 @@ Ext.define('CustomApp', {
               fontSize: '13px',
               fontFamily: 'ProximaNova,Helvetica',
               textTransform: 'uppercase'
+            },
+            listeners: {
+              afterrender: function() {
+                _.delay(function() {
+                  Ext.getCmp('gearBtn').toolTip.show();
+                }, 500);
+              }
             }
           }]
         },{
@@ -234,6 +248,10 @@ Ext.define('CustomApp', {
                 flex: 1
             }],
             storeConfig: {
+                context: {
+                  project: '/project/10823784037',
+                  projectScopeDown: true
+                },
                 pageSize: 20000,
                 sorters: [{
                     property: 'FormattedID',

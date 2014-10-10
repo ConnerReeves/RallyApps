@@ -1,0 +1,15 @@
+Hackathon Script
+
+-Add Portfolio Item I3180 (Explain picker)
+-Describe main chart
+  -Current scope line
+  -Past iteration burnup
+  -Current iteration
+  -Outer projection area and projection lines
+  -Last defined iteration
+
+-Pop out histogram
+  -Explain "future iterations"
+  -Show bar frequency measures (tooltip)
+
+-Show granularity and permutation adjustments
